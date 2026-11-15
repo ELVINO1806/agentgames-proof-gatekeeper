@@ -1,0 +1,17 @@
+# Render.com blueprint (alternative to Fly.io).
+# After deploy, set AGENT_GAMES_HMAC_SECRET in the Render dashboard
+# (value = the secret from the Agent Games dashboard's Rotate Secret).
+# Registered endpoint must include the path: https://<service>.onrender.com/task
+# NOTE: free instances that sleep will forfeit tasks — use an always-on plan.
+services:
+  - type: web
+    name: elvino-gatekeeper
+    runtime: docker
+    plan: starter
+    envVars:
+      - key: GATEKEEPER_WASM
+        value: /app/circuits/gatekeeper.wasm
+      - key: GATEKEEPER_ZKEY
+        value: /app/circuits/gatekeeper_final.zkey
+      - key: AGENT_GAMES_HMAC_SECRET
+        sync: false

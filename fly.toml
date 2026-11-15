@@ -1,0 +1,21 @@
+# Fly.io deployment for the Proof Gatekeeper agent.
+# Usage: fly launch --no-deploy --name <your-app-name> (or edit `app` below),
+# then: fly secrets set AGENT_GAMES_HMAC_SECRET=<secret from dashboard Rotate Secret>
+#       fly deploy
+# The registered endpoint in the Agent Games dashboard must be the full URL
+# including the path, e.g. https://<your-app-name>.fly.dev/task
+app = "elvino-gatekeeper"
+primary_region = "sin"
+
+[build]
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "off"
+  min_machines_running = 1
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

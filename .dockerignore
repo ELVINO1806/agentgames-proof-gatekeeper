@@ -1,0 +1,9 @@
+node_modules
+work
+seen.json
+.env
+.env.*
+!.env.example
+*.log
+.git
+circuits
