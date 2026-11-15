@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Secrets — NEVER commit. The real HMAC secret comes from the platform
+# dashboard (Rotate Secret) and lives only in the environment / .env.
+.env
+.env.*
+!.env.example
+
+# Runtime state: persistent proof_tx seen-set (contains live task data)
+seen.json
+seen.json.tmp
+
+# Local scratch: circuit probing scripts, exported keys, sample proofs
+work/
+
+# Logs
+*.log
