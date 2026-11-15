@@ -51,10 +51,41 @@ function persistSeen() {
 const responseCache = new Map();
 
 // ---------- HMAC helpers ----------
+// The official pages never state the HMAC algorithm/encoding, so inbound
+// verification accepts every plausible encoding of the same HMAC-SHA256:
+// hex or base64 digest, key as the raw string, trimmed, hex-decoded or
+// base64-decoded. Every candidate still requires knowledge of the secret.
 function hmacHex(rawBodyBuffer) {
   return crypto.createHmac('sha256', SECRET).update(rawBodyBuffer).digest('hex');
 }
-function signatureValid(rawBodyBuffer, headerValue) {
+function keyVariants() {
+  const keys = [];
+  const seen = new Set();
+  const push = (buf) => {
+    if (!buf || buf.length === 0) return;
+    const id = buf.toString('base64');
+    if (seen.has(id)) return;
+    seen.add(id);
+    keys.push(buf);
+  };
+  push(Buffer.from(SECRET, 'utf8'));
+  push(Buffer.from(SECRET.trim(), 'utf8'));
+  if (/^[0-9a-fA-F]+$/.test(SECRET.trim()) && SECRET.trim().length % 2 === 0) {
+    push(Buffer.from(SECRET.trim(), 'hex'));
+  }
+  try { push(Buffer.from(SECRET.trim(), 'base64')); } catch (e) { /* not base64 */ }
+  return keys;
+}
+function signatureCandidates(rawBodyBuffer) {
+  const out = [];
+  for (const key of keyVariants()) {
+    const mac = crypto.createHmac('sha256', key).update(rawBodyBuffer).digest();
+    out.push(mac.toString('hex'));
+    out.push(mac.toString('base64'));
+  }
+  return out;
+}
+function signatureValid(rawBodyBuffer, headerValue, headers) {
   if (!SECRET) {
     console.log('[agent] signature check skipped (no secret configured)');
     return true;
@@ -63,11 +94,26 @@ function signatureValid(rawBodyBuffer, headerValue) {
     console.log('[agent] no x-agent-games-signature header present — proceeding (header-absent case)');
     return true;
   }
-  const expected = hmacHex(rawBodyBuffer);
-  const got = String(headerValue).trim().toLowerCase();
-  const a = Buffer.from(expected, 'utf8');
-  const b = Buffer.from(got, 'utf8');
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  let got = String(headerValue).trim();
+  // Tolerate "sha256=<digest>" and Stripe-style "t=...,v1=<digest>" wrappers.
+  const v1 = got.match(/v1=([A-Za-z0-9+/=_-]+)/);
+  if (v1) got = v1[1];
+  if (got.toLowerCase().startsWith('sha256=')) got = got.slice(7);
+  const candidates = signatureCandidates(rawBodyBuffer);
+  for (const expected of candidates) {
+    const a = Buffer.from(expected, 'utf8');
+    const b = Buffer.from(got, 'utf8');
+    const bLower = Buffer.from(got.toLowerCase(), 'utf8');
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
+    if (a.length === bLower.length && crypto.timingSafeEqual(a, bLower)) return true;
+  }
+  console.log('[agent] signature mismatch diagnostics:',
+    'headerLen=' + String(headerValue).length,
+    'headerPrefix=' + String(headerValue).slice(0, 16),
+    'bodyLen=' + rawBodyBuffer.length,
+    'candidatePrefixes=' + candidates.map((c) => c.slice(0, 12)).join(','),
+    'headerNames=' + (headers ? Object.keys(headers).join(',') : 'n/a'));
+  return false;
 }
 function sendJson(res, status, obj) {
   const body = typeof obj === 'string' ? obj : JSON.stringify(obj);
@@ -218,7 +264,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       const rawBody = Buffer.concat(chunks);
       // Verify BEFORE parsing (official requirement).
-      if (!signatureValid(rawBody, req.headers['x-agent-games-signature'])) {
+      if (!signatureValid(rawBody, req.headers['x-agent-games-signature'], req.headers)) {
         console.log('[agent] inbound signature mismatch — 401');
         return sendJson(res, 401, { ok: false, error: 'invalid_signature' });
       }
